@@ -11,6 +11,7 @@ from tqdm import tqdm
 from geometry_processing import save_vtk
 from helper import numpy, diagonal_ranges
 import time
+import pdb
 
 
 def process_single(protein_pair, chain_idx=1):
@@ -83,6 +84,8 @@ def save_protein_batch_single(protein_pair_id, P, save_path, pdb_idx):
     xyz = P["xyz"]
 
     inputs = P["input_features"]
+    
+    normals = P["normals"]
 
     embedding = P["embedding_1"] if pdb_idx == 1 else P["embedding_2"]
     emb_id = 1 if pdb_idx == 1 else 2
@@ -96,6 +99,7 @@ def save_protein_batch_single(protein_pair_id, P, save_path, pdb_idx):
     save_vtk(str(save_path / pdb_id) + f"_pred_emb{emb_id}", xyz, values=coloring)
     np.save(str(save_path / pdb_id) + "_predcoords", numpy(xyz))
     np.save(str(save_path / pdb_id) + f"_predfeatures_emb{emb_id}", numpy(coloring))
+    np.save(str(save_path / pdb_id) + f"_normals", numpy(normals))
 
 
 def project_iface_labels(P, threshold=2.0):
@@ -202,6 +206,9 @@ def compute_loss(args, P1, P2, n_points_sample=16):
     pos_indices = torch.randperm(len(pos_labels))[:n_points_sample]
     neg_indices = torch.randperm(len(neg_labels))[:n_points_sample]
 
+    pos_score = torch.sigmoid(pos_preds).sum()
+    # pos_score = (-F.logsigmoid(pos_preds)-args.ground_energy).sum()
+    #pdb.set_trace()
     pos_preds = pos_preds[pos_indices]
     pos_labels = pos_labels[pos_indices]
     neg_preds = neg_preds[neg_indices]
@@ -212,7 +219,7 @@ def compute_loss(args, P1, P2, n_points_sample=16):
 
     loss = F.binary_cross_entropy_with_logits(preds_concat, labels_concat)
 
-    return loss, preds_concat, labels_concat
+    return loss, preds_concat, labels_concat, pos_score
 
 
 def extract_single(P_batch, number):
@@ -266,7 +273,7 @@ def iterate(
     total_processed_pairs = 0
     # Loop over one epoch:
     for it, protein_pair in enumerate(
-        tqdm(dataset)
+        dataset
     ):  # , desc="Test " if test else "Train")):
         protein_batch_size = protein_pair.atom_coords_p1_batch[-1].item() + 1
         if save_path is not None:
@@ -281,14 +288,14 @@ def iterate(
             optimizer.zero_grad()
 
         # Generate the surface:
-        torch.cuda.synchronize()
+	    #torch.cuda.synchronize()
         surface_time = time.time()
         P1_batch, P2_batch = process(args, protein_pair, net)
-        torch.cuda.synchronize()
+        #torch.cuda.synchronize()
         surface_time = time.time() - surface_time
 
         for protein_it in range(protein_batch_size):
-            torch.cuda.synchronize()
+            #torch.cuda.synchronize()
             iteration_time = time.time()
 
             P1 = extract_single(P1_batch, protein_it)
@@ -322,10 +329,10 @@ def iterate(
                     P2["rand_rot"] = torch.eye(3, device=P2["xyz"].device)
                     P2["atom_center"] = torch.zeros((1, 3), device=P2["xyz"].device)
                     
-            torch.cuda.synchronize()
+            #torch.cuda.synchronize()
             prediction_time = time.time()
             outputs = net(P1, P2)
-            torch.cuda.synchronize()
+            #torch.cuda.synchronize()
             prediction_time = time.time() - prediction_time
 
             P1 = outputs["P1"]
@@ -335,7 +342,8 @@ def iterate(
                 generate_matchinglabels(args, P1, P2)
 
             if P1["labels"] is not None:
-                loss, sampled_preds, sampled_labels = compute_loss(args, P1, P2)
+                loss, sampled_preds, sampled_labels, pos_score = compute_loss(args, P1, P2)
+                
             else:
                 loss = torch.tensor(0.0)
                 sampled_preds = None
@@ -343,11 +351,11 @@ def iterate(
 
             # Compute the gradient, update the model weights:
             if not test:
-                torch.cuda.synchronize()
+                #torch.cuda.synchronize()
                 back_time = time.time()
                 loss.backward()
                 optimizer.step()
-                torch.cuda.synchronize()
+                #torch.cuda.synchronize()
                 back_time = time.time() - back_time
 
             if it == protein_it == 0 and not test:
@@ -405,7 +413,7 @@ def iterate(
                     **{"R_values/" + k: v for k, v in R_values.items()},
                 )
             )
-            torch.cuda.synchronize()
+            #torch.cuda.synchronize()
             iteration_time = time.time() - iteration_time
 
     # Turn a list of dicts into a dict of lists:
@@ -418,11 +426,11 @@ def iterate(
     info = newdict
 
     # Final post-processing:
-    return info
+    return info, pos_score
 
 def iterate_surface_precompute(dataset, net, args):
     processed_dataset = []
-    for it, protein_pair in enumerate(tqdm(dataset)):
+    for it, protein_pair in enumerate(dataset):
         protein_pair.to(args.device)
         P1, P2 = process(args, protein_pair, net)
         if args.random_rotation:
