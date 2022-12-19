@@ -84,6 +84,8 @@ def save_protein_batch_single(protein_pair_id, P, save_path, pdb_idx):
 
     inputs = P["input_features"]
 
+    normals = P["normals"]
+
     embedding = P["embedding_1"] if pdb_idx == 1 else P["embedding_2"]
     emb_id = 1 if pdb_idx == 1 else 2
 
@@ -96,6 +98,7 @@ def save_protein_batch_single(protein_pair_id, P, save_path, pdb_idx):
     save_vtk(str(save_path / pdb_id) + f"_pred_emb{emb_id}", xyz, values=coloring)
     np.save(str(save_path / pdb_id) + "_predcoords", numpy(xyz))
     np.save(str(save_path / pdb_id) + f"_predfeatures_emb{emb_id}", numpy(coloring))
+    np.save(str(save_path / pdb_id) + f"_normals", numpy(normals))
 
 
 def project_iface_labels(P, threshold=2.0):
@@ -202,6 +205,9 @@ def compute_loss(args, P1, P2, n_points_sample=16):
     pos_indices = torch.randperm(len(pos_labels))[:n_points_sample]
     neg_indices = torch.randperm(len(neg_labels))[:n_points_sample]
 
+    pos_score = torch.sigmoid(pos_preds).sum()
+    # pos_score = (-F.logsigmoid(pos_preds)-args.ground_energy).sum()
+    #pdb.set_trace()
     pos_preds = pos_preds[pos_indices]
     pos_labels = pos_labels[pos_indices]
     neg_preds = neg_preds[neg_indices]

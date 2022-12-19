@@ -398,7 +398,7 @@ class dMaSIF(nn.Module):
         P["input_features"] = features
 
         torch.cuda.synchronize(device=features.device)
-        torch.cuda.reset_max_memory_allocated(device=P["atoms"].device)
+        torch.cuda.reset_peak_memory_stats(device=P["atoms"].device)
         begin = time.time()
 
         # Ours:
