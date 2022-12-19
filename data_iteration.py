@@ -11,8 +11,6 @@ from tqdm import tqdm
 from geometry_processing import save_vtk
 from helper import numpy, diagonal_ranges
 import time
-import pdb
-
 
 def process_single(protein_pair, chain_idx=1):
     """Turn the PyG data object into a dict."""
